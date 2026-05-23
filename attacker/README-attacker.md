@@ -46,33 +46,34 @@ attacker/
 
 ## Completed
 
-### 1. Project Structure Setup
-Created attacker module folder and required files.
+### 1. Async Attack Engine Implemented
+`attack.py` now includes:
+- async concurrent login attempts (`aiohttp` + `asyncio`)
+- configurable concurrency, timeout, and delay range
+- User-Agent rotation and spoofed IP rotation (`X-Forwarded-For`, `X-Real-IP`)
+- case-insensitive success pattern matching
+- per-attempt latency and status tracking
 
 ---
 
-### 2. Dependency Planning
-Selected required libraries for asynchronous HTTP requests and terminal logging.
-
-Current dependencies:
-
-```text
-aiohttp
-colorama
-```
+### 2. Reporting Implemented
+After each run, the engine:
+- prints live terminal output for each attempt
+- prints final attack summary
+- saves structured JSON report to `attacker/reports/`
 
 ---
 
-### 3. Credentials Dataset Preparation
+### 3. Credentials Dataset Prepared
 Prepared credential dataset containing:
-- valid credentials,
-- invalid credentials,
-- realistic credential stuffing simulation data.
+- valid credentials
+- invalid credentials
+- realistic credential stuffing simulation data
 
 Current dataset:
-- Total credentials: 50
+- Total credentials: 56
 - Valid credentials: 6
-- Invalid credentials: 44
+- Invalid credentials: 50
 
 ---
 
@@ -109,16 +110,16 @@ admin:admin123
 
 ---
 
-# Planned Features
-
-The attack engine will implement:
+# Implemented Features
 
 - asynchronous HTTP requests
 - concurrent login attempts
-- login success detection
-- failed login detection
-- attack reporting
-- terminal logging
+- login success/failure/error detection
+- randomized request delays
+- User-Agent rotation
+- spoofed IP header rotation
+- JSON attack report generation
+- terminal progress + summary output
 
 ---
 
@@ -133,7 +134,7 @@ The attack engine will implement:
 
 ---
 
-# Planned Workflow
+# Runtime Workflow
 
 ```text
 credentials.txt
@@ -192,15 +193,27 @@ All testing is intended for:
 
 ---
 
-# Next Development Steps
+# How To Run
 
-Planned implementation order:
+From project root:
 
-1. Write asynchronous attack engine
-2. Add login request handling
-3. Implement success detection
-4. Generate attack reports
-5. Perform integration testing
+```bash
+python3 -m venv .venv
+.venv/bin/python3 -m pip install -r attacker/requirements.txt
+.venv/bin/python3 attacker/attack.py
+```
+
+Useful options:
+
+```bash
+.venv/bin/python3 attacker/attack.py \
+  --url http://localhost:5000/login \
+  --concurrency 10 \
+  --timeout 8 \
+  --min-delay 0.1 \
+  --max-delay 0.6 \
+  --success-pattern "Login Successful"
+```
 
 ---
 
