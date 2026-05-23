@@ -367,3 +367,114 @@ This project is intended solely for:
 - academic use,
 - cybersecurity education,
 - and authorized security research.
+
+---
+
+# Branching Strategy
+
+The project uses a multi-branch collaborative workflow to allow team members to work independently without conflicts.
+
+## Branches
+
+| Branch Name | Assigned Module |
+|---|---|
+| main | Final integrated stable project |
+| attack-engine | Attack automation module |
+| evasion-module | Evasion + Docker networking |
+| target-app | Vulnerable Flask application |
+| defense-module | Defense mechanisms + presentation |
+
+---
+
+# Development Workflow
+
+Each team member:
+1. Clones the repository locally
+2. Switches to their assigned branch
+3. Works only inside their assigned module/folder
+4. Pushes commits to their branch
+5. Final code is merged into `main`
+
+---
+
+# Folder Ownership
+
+| Folder | Responsible Branch |
+|---|---|
+| attacker/ | attack-engine |
+| evasion/ | evasion-module |
+| target-app/ | target-app |
+| defense/ | defense-module |
+
+---
+
+# Git Workflow
+
+## Clone Repository
+
+```bash
+git clone <repo-url>
+```
+
+---
+
+## Switch Branch
+
+```bash
+git checkout attack-engine
+```
+
+Example:
+```bash
+git checkout evasion-module
+```
+
+---
+
+## Push Changes
+
+```bash
+git add .
+git commit -m "Added feature"
+git push origin <branch-name>
+```
+
+---
+
+# Final Integration
+
+After all modules are completed:
+
+```bash
+git checkout main
+git merge attack-engine
+git merge evasion-module
+git merge target-app
+git merge defense-module
+git push origin main
+```
+
+---
+
+# Dockerized Modular Design
+
+The project follows a containerized modular architecture:
+- Attack engine runs independently
+- Target application runs in isolated environment
+- Networking and evasion are simulated safely
+- Defensive mechanisms can be enabled/disabled independently
+
+This improves:
+- scalability
+- maintainability
+- isolated testing
+- cloud-native compatibility
+
+---
+
+# Collaboration Notes
+
+- Team members should mainly work inside their assigned folders
+- Avoid modifying unrelated modules unless necessary
+- Pull latest changes regularly before pushing updates
+- Resolve merge conflicts carefully during final integration
