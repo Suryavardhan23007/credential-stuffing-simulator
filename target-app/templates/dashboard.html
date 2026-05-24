@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attack Monitoring Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <main class="dashboard">
+        <section class="warning">
+            This vulnerable application is intentionally insecure and is only for localhost educational cybersecurity testing.
+        </section>
+
+        <header class="dashboard-header">
+            <div>
+                <p class="eyebrow">live monitoring</p>
+                <h1>Attack Simulation Visibility</h1>
+            </div>
+            <a class="dashboard-link" href="{{ url_for('login') }}">Back to login</a>
+        </header>
+
+        <section class="stat-grid" id="stat-grid">
+            <article class="stat-card"><span>Total Attempts</span><strong>{{ data.metrics.total_attempts }}</strong></article>
+            <article class="stat-card success"><span>Successful Logins</span><strong>{{ data.metrics.successful_logins }}</strong></article>
+            <article class="stat-card failure"><span>Failed Logins</span><strong>{{ data.metrics.failed_logins }}</strong></article>
+            <article class="stat-card blocked"><span>Blocked Requests</span><strong>{{ data.metrics.blocked_requests }}</strong></article>
+        </section>
+
+        <section class="dashboard-grid">
+            <article class="table-panel">
+                <h2>Top Attacking IPs</h2>
+                <table>
+                    <thead><tr><th>IP Address</th><th>Attempts</th></tr></thead>
+                    <tbody id="top-ips">
+                        {% for ip, count in data.top_ips %}
+                        <tr><td>{{ ip }}</td><td>{{ count }}</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </article>
+
+            <article class="table-panel">
+                <h2>User-Agent Rotation</h2>
+                <table>
+                    <thead><tr><th>User-Agent</th><th>Seen</th></tr></thead>
+                    <tbody id="top-user-agents">
+                        {% for user_agent, count in data.top_user_agents %}
+                        <tr><td class="ua">{{ user_agent }}</td><td>{{ count }}</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </article>
+        </section>
+
+        <section class="table-panel">
+            <h2>Fixed Window Limiter</h2>
+            <div class="window-meter">
+                <span>Attempts in current window: <strong id="window-count">{{ data.window.count }}</strong> / {{ data.window.limit }}</span>
+                <span>Resets in <strong id="window-reset">{{ data.window.resets_in }}</strong>s</span>
+            </div>
+            <div class="window-meter">
+                <span>Adaptive per-IP base limit: <strong id="adaptive-base">{{ data.adaptive.base_ip_limit_per_minute }}</strong>/min</span>
+                <span>Active IP cooldowns: <strong id="adaptive-cooldowns">{{ data.adaptive.active_ip_cooldowns }}</strong></span>
+            </div>
+            <div class="timing-bars" id="timing-bars">
+                {% for sample in data.timing_samples %}
+                <span title="{{ sample }} seconds" style="height: {{ [8, sample * 18]|max }}px"></span>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="table-panel">
+            <h2>Recent Activity Logs</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>IP</th>
+                        <th>Username</th>
+                        <th>User-Agent</th>
+                        <th>Status</th>
+                        <th>Timing</th>
+                    </tr>
+                </thead>
+                <tbody id="recent-events">
+                    {% for event in data.recent_events %}
+                    <tr class="{% if event.blocked %}row-blocked{% elif event.success %}row-success{% else %}row-failure{% endif %}">
+                        <td>{{ event.timestamp }}</td>
+                        <td>{{ event.ip }}</td>
+                        <td>{{ event.username }}</td>
+                        <td class="ua">{{ event.user_agent }}</td>
+                        <td>{{ event.reason }}</td>
+                        <td>{{ event.seconds_since_last if event.seconds_since_last is not none else "-" }}s</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+    </main>
+
+    <script>
+        async function refreshDashboard() {
+            const response = await fetch("/api/stats");
+            const data = await response.json();
+
+            document.querySelector(".stat-card:nth-child(1) strong").textContent = data.metrics.total_attempts;
+            document.querySelector(".stat-card:nth-child(2) strong").textContent = data.metrics.successful_logins;
+            document.querySelector(".stat-card:nth-child(3) strong").textContent = data.metrics.failed_logins;
+            document.querySelector(".stat-card:nth-child(4) strong").textContent = data.metrics.blocked_requests;
+            document.getElementById("window-count").textContent = data.window.count;
+            document.getElementById("window-reset").textContent = data.window.resets_in;
+            document.getElementById("adaptive-base").textContent = data.adaptive.base_ip_limit_per_minute;
+            document.getElementById("adaptive-cooldowns").textContent = data.adaptive.active_ip_cooldowns;
+
+            document.getElementById("top-ips").innerHTML = data.top_ips
+                .map(([ip, count]) => `<tr><td>${escapeHtml(ip)}</td><td>${count}</td></tr>`)
+                .join("");
+
+            document.getElementById("top-user-agents").innerHTML = data.top_user_agents
+                .map(([ua, count]) => `<tr><td class="ua">${escapeHtml(ua)}</td><td>${count}</td></tr>`)
+                .join("");
+
+            document.getElementById("timing-bars").innerHTML = data.timing_samples
+                .map(sample => `<span title="${sample} seconds" style="height: ${Math.max(8, sample * 18)}px"></span>`)
+                .join("");
+
+            document.getElementById("recent-events").innerHTML = data.recent_events.map(event => {
+                const rowClass = event.blocked ? "row-blocked" : event.success ? "row-success" : "row-failure";
+                const timing = event.seconds_since_last === null ? "-" : event.seconds_since_last;
+                return `<tr class="${rowClass}">
+                    <td>${escapeHtml(event.timestamp)}</td>
+                    <td>${escapeHtml(event.ip)}</td>
+                    <td>${escapeHtml(event.username)}</td>
+                    <td class="ua">${escapeHtml(event.user_agent)}</td>
+                    <td>${escapeHtml(event.reason)}</td>
+                    <td>${timing}s</td>
+                </tr>`;
+            }).join("");
+        }
+
+        function escapeHtml(value) {
+            return String(value)
+                .replaceAll("&", "&amp;")
+                .replaceAll("<", "&lt;")
+                .replaceAll(">", "&gt;")
+                .replaceAll('"', "&quot;")
+                .replaceAll("'", "&#039;");
+        }
+
+        setInterval(refreshDashboard, 3000);
+    </script>
+</body>
+</html>

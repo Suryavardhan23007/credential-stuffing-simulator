@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vulnerable Login Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <main class="shell">
+        <section class="warning">
+            This vulnerable application is intentionally insecure and is only for localhost educational cybersecurity testing.
+        </section>
+
+        <section class="login-panel">
+            <div class="panel-header">
+                <p class="eyebrow">credential stuffing lab</p>
+                <h1>Vulnerable Login</h1>
+                <p class="muted">Weak controls intentionally expose IP, User-Agent, and timing bypass patterns.</p>
+            </div>
+
+            <form method="POST" action="{{ url_for('login') }}" class="login-form">
+                <label for="username">Username</label>
+                <input id="username" name="username" type="text" autocomplete="username" required>
+
+                <label for="password">Password</label>
+                <input id="password" name="password" type="password" autocomplete="current-password" required>
+
+                <label for="captcha_token">Captcha Token (if prompted)</label>
+                <input id="captcha_token" name="captcha_token" type="text" autocomplete="off" placeholder="Required after repeated failures">
+
+                <button type="submit">Attempt Login</button>
+            </form>
+
+            {% if message %}
+            <div class="message {{ status }}">{{ message }}</div>
+            {% endif %}
+
+            {% if event %}
+            <div class="event-card">
+                <span>IP: {{ event.ip }}</span>
+                <span>User-Agent: {{ event.user_agent }}</span>
+                <span>Reason: {{ event.reason }}</span>
+            </div>
+            {% endif %}
+
+            <a class="dashboard-link" href="{{ url_for('dashboard') }}">Open monitoring dashboard</a>
+        </section>
+    </main>
+</body>
+</html>

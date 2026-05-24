@@ -51,8 +51,10 @@ attacker/
 - async concurrent login attempts (`aiohttp` + `asyncio`)
 - configurable concurrency, timeout, and delay range
 - User-Agent rotation and spoofed IP rotation (`X-Forwarded-For`, `X-Real-IP`)
+- proxy-list based IP rotation (`proxy_list.txt`) with fallback randomization
 - case-insensitive success pattern matching
 - per-attempt latency and status tracking
+- combo mode (`usernames x passwords`) for credential stuffing permutations
 
 ---
 
@@ -65,15 +67,14 @@ After each run, the engine:
 ---
 
 ### 3. Credentials Dataset Prepared
-Prepared credential dataset containing:
-- valid credentials
-- invalid credentials
-- realistic credential stuffing simulation data
+Prepared datasets:
+- `credentials.txt` for pair mode (`username:password`)
+- `usernames.txt` and `passwords.txt` for combo mode
 
-Current dataset:
-- Total credentials: 56
-- Valid credentials: 6
-- Invalid credentials: 50
+Combo dataset:
+- 30 usernames
+- 30 passwords
+- up to 900 generated attempts
 
 ---
 
@@ -200,18 +201,21 @@ From project root:
 ```bash
 python3 -m venv .venv
 .venv/bin/python3 -m pip install -r attacker/requirements.txt
-.venv/bin/python3 attacker/attack.py
+.venv/bin/python3 attacker/attack.py --mode combo
 ```
 
 Useful options:
 
 ```bash
 .venv/bin/python3 attacker/attack.py \
+  --mode combo \
   --url http://localhost:5000/login \
   --concurrency 10 \
   --timeout 8 \
   --min-delay 0.1 \
   --max-delay 0.6 \
+  --max-combinations 900 \
+  --proxy-list attacker/proxy_list.txt \
   --success-pattern "Login Successful"
 ```
 

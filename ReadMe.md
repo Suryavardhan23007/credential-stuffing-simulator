@@ -227,6 +227,19 @@ Technologies:
 
 ---
 
+# Hackathon Documentation Bundle
+
+The required submission documents are available in this repository:
+
+- README: `ReadMe.md`
+- Setup Documentation: `SETUP_DOCUMENTATION.md`
+- Threat Model Write-up: `THREAT_MODEL_WRITEUP.md`
+- Bypass Demonstration: `BYPASS_DEMONSTRATION.md`
+- Mitigation/Defensive Write-up: `defense/mitigation_report.md`
+- Code comments: present in core files (`attacker/attack.py`, `target-app/app.py`, `defense/*.py`, `evasion/*.py`)
+
+---
+
 # Docker Usage
 
 ## Build Containers
@@ -478,5 +491,3 @@ This improves:
 - Avoid modifying unrelated modules unless necessary
 - Pull latest changes regularly before pushing updates
 - Resolve merge conflicts carefully during final integration
-
-

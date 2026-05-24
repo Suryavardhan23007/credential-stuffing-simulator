@@ -1,0 +1,36 @@
+services:
+  vulnerable-login:
+    build:
+      context: .
+      dockerfile: target-app/Dockerfile
+    container_name: vulnerable-login
+    ports:
+      - "5050:5000"
+    environment:
+      - FLASK_RUN_HOST=0.0.0.0
+      - FLASK_RUN_PORT=5000
+      - DEFENSE_ENABLED=0
+      - ADAPTIVE_BLOCK_SCORE=80
+    volumes:
+      - ./target-app/logs:/app/target-app/logs
+    networks:
+      - simulator-net
+
+  attacker:
+    build:
+      context: .
+      dockerfile: attacker/Dockerfile
+    container_name: credential-attacker
+    depends_on:
+      - vulnerable-login
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["python", "attack.py", "--mode", "combo", "--url", "http://vulnerable-login:5000/login", "--concurrency", "12", "--min-delay", "0.05", "--max-delay", "0.20", "--max-combinations", "900"]
+    volumes:
+      - ./attacker/reports:/app/attacker/reports
+    networks:
+      - simulator-net
+
+networks:
+  simulator-net:
+    driver: bridge

